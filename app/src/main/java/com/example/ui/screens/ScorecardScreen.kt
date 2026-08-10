@@ -24,6 +24,17 @@ import com.example.data.model.BallEvent
 import com.example.data.model.Match
 import com.example.data.viewmodel.CricketViewModel
 import com.example.ui.theme.*
+import com.example.util.CricketOverUtils
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.LocalContext
+import com.example.ui.components.WagonWheelCanvas
+import com.example.util.CricketCommentaryUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,12 +43,17 @@ fun ScorecardScreen(
     viewModel: CricketViewModel,
     onNavigateBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val matchFlow = viewModel.getMatchByIdFlow(matchId).collectAsState(initial = null)
     val match = matchFlow.value
+
+    val scorecardCustomization by viewModel.scorecardCustomization.collectAsState()
 
     val ballsInnings1 by viewModel.getBallEventsForInnings(matchId, 1).collectAsState(initial = emptyList())
     val ballsInnings2 by viewModel.getBallEventsForInnings(matchId, 2).collectAsState(initial = emptyList())
 
+    var selectedScorecardStyle by remember { mutableStateOf("Professional") }
+    var selectedInningsTab by remember { mutableStateOf(1) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     if (match == null) {
@@ -47,16 +63,37 @@ fun ScorecardScreen(
         return
     }
 
+    val activeBalls = if (selectedInningsTab == 1) ballsInnings1 else ballsInnings2
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Match Scorecard & Charts", fontWeight = FontWeight.Bold) },
+                title = { Text("Match Scorecard", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        val shareText = buildString {
+                            appendLine("🏏 *${match.team1Name} vs ${match.team2Name}*")
+                            appendLine("Venue: ${match.venue} • Format: ${match.matchType}")
+                            appendLine("${match.team1Name}: ${match.team1Score}/${match.team1Wickets} (${CricketOverUtils.formatOversFromFloat(match.team1Overs)} ov)")
+                            if (match.team2Name.isNotEmpty()) {
+                                appendLine("${match.team2Name}: ${match.team2Score}/${match.team2Wickets} (${CricketOverUtils.formatOversFromFloat(match.team2Overs)} ov)")
+                            }
+                            if (match.resultSummary.isNotEmpty()) {
+                                appendLine("Result: ${match.resultSummary}")
+                            }
+                        }
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText("Cricket Scorecard", shareText)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "Scorecard summary copied to clipboard!", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.Share, contentDescription = "Share Scorecard", tint = Color.White)
+                    }
                     IconButton(onClick = { viewModel.toggleLockMatch(match) }) {
                         Icon(
                             if (match.isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
@@ -127,7 +164,83 @@ fun ScorecardScreen(
                 }
             }
 
-            // Manhattan Runs Per Over Chart
+            // Scorecard Style Selector Row
+            item {
+                Column {
+                    Text("Select Scorecard Layout Style:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextSecondaryLight)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(listOf("Professional", "Classic", "Compact", "Detailed", "TV Broadcast", "Minimal", "Live Score", "Ball-by-Ball")) { style ->
+                            FilterChip(
+                                selected = selectedScorecardStyle == style,
+                                onClick = { selectedScorecardStyle = style },
+                                label = { Text(style, fontSize = 12.sp) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Innings Selector Tabs
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { selectedInningsTab = 1 },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selectedInningsTab == 1) CricketGreenDark else Color.LightGray
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("1st Innings: ${match.team1Name}")
+                    }
+                    if (match.team2Name.isNotEmpty()) {
+                        Button(
+                            onClick = { selectedInningsTab = 2 },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selectedInningsTab == 2) CricketGreenDark else Color.LightGray
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("2nd Innings: ${match.team2Name}")
+                        }
+                    }
+                }
+            }
+
+            // Scorecard Table
+            item {
+                ScorecardTableCard(
+                    teamScore = if (selectedInningsTab == 1) match.team1Score else match.team2Score,
+                    wickets = if (selectedInningsTab == 1) match.team1Wickets else match.team2Wickets,
+                    overs = if (selectedInningsTab == 1) match.team1Overs else match.team2Overs,
+                    balls = activeBalls,
+                    style = selectedScorecardStyle,
+                    customization = scorecardCustomization
+                )
+            }
+
+            // Bowling Analysis Table
+            if (scorecardCustomization.showBowlerStats) {
+                item {
+                    BowlingAnalysisCard(balls = activeBalls)
+                }
+            }
+
+            // Fall of Wickets Card
+            if (scorecardCustomization.showFallOfWickets) {
+                item {
+                    FallOfWicketsCard(balls = activeBalls)
+                }
+            }
+
+            // Wagon Wheel Canvas
+            if (scorecardCustomization.showWagonWheel) {
+                item {
+                    WagonWheelCanvas(ballEvents = activeBalls)
+                }
+            }
+
+            // Manhattan & Worm Charts
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -139,7 +252,7 @@ fun ScorecardScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.BarChart, contentDescription = null, tint = CricketGreenDark)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Manhattan Graph (Runs per Over)", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CricketGreenDark)
+                            Text("Runs per Over (Manhattan)", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CricketGreenDark)
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         ManhattanChartCanvas(balls = ballsInnings1)
@@ -147,7 +260,6 @@ fun ScorecardScreen(
                 }
             }
 
-            // Worm Run Progression Chart
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -167,37 +279,27 @@ fun ScorecardScreen(
                 }
             }
 
-            // Innings 1 Scorecard Table
-            item {
-                Text(
-                    text = "1st Innings: ${match.team1Name}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = CricketGreenDark
-                )
-                ScorecardTableCard(
-                    teamScore = match.team1Score,
-                    wickets = match.team1Wickets,
-                    overs = match.team1Overs,
-                    balls = ballsInnings1
-                )
-            }
-
-            // Innings 2 Scorecard Table if played
-            if (match.team2Name.isNotEmpty()) {
+            // Ball-by-Ball Commentary Stream
+            if (scorecardCustomization.showCommentary && activeBalls.isNotEmpty()) {
                 item {
-                    Text(
-                        text = "2nd Innings: ${match.team2Name}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = CricketGreenDark
-                    )
-                    ScorecardTableCard(
-                        teamScore = match.team2Score,
-                        wickets = match.team2Wickets,
-                        overs = match.team2Overs,
-                        balls = ballsInnings2
-                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("📢 Ball-by-Ball Live Commentary", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CricketGreenDark)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            activeBalls.takeLast(15).reversed().forEach { b ->
+                                Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    Text("${b.overNumber}.${b.ballNumberInOver}", fontWeight = FontWeight.Bold, color = CricketGreenDark, fontSize = 12.sp, modifier = Modifier.width(36.dp))
+                                    Text(CricketCommentaryUtils.generateCommentary(b), fontSize = 12.sp)
+                                }
+                                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -244,7 +346,9 @@ fun ScorecardTableCard(
     teamScore: Int,
     wickets: Int,
     overs: Float,
-    balls: List<BallEvent>
+    balls: List<BallEvent>,
+    style: String = "Professional",
+    customization: ScorecardCustomization = ScorecardCustomization()
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -257,8 +361,8 @@ fun ScorecardTableCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Total Score:", fontWeight = FontWeight.Bold)
-                Text("$teamScore/$wickets ($overs overs)", fontWeight = FontWeight.Bold, color = CricketGreenDark)
+                Text("Total Score ($style Style):", fontWeight = FontWeight.Bold)
+                Text("$teamScore/$wickets (${CricketOverUtils.formatOversFromFloat(overs)} overs)", fontWeight = FontWeight.Bold, color = CricketGreenDark)
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -270,6 +374,7 @@ fun ScorecardTableCard(
                 Text("B", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
                 Text("4s", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
                 Text("6s", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
+                Text("SR", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.8f))
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -284,6 +389,7 @@ fun ScorecardTableCard(
                     val b = batterBalls.count { it.extraType != "WIDE" }
                     val fours = batterBalls.count { it.runsScored == 4 }
                     val sixes = batterBalls.count { it.runsScored == 6 }
+                    val sr = if (b > 0) "%.1f".format((r.toDouble() / b) * 100) else "0.0"
 
                     Row(
                         modifier = Modifier
@@ -296,20 +402,113 @@ fun ScorecardTableCard(
                         Text("$b", modifier = Modifier.weight(0.6f))
                         Text("$fours", modifier = Modifier.weight(0.6f))
                         Text("$sixes", modifier = Modifier.weight(0.6f))
+                        Text(sr, modifier = Modifier.weight(0.8f), fontSize = 11.sp)
                     }
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            if (customization.showExtrasBreakdown) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // Extras
-            val wides = balls.count { it.extraType == "WIDE" }
-            val noBalls = balls.count { it.extraType == "NO_BALL" }
-            val byes = balls.filter { it.extraType == "BYE" }.sumOf { it.extraRuns }
-            val legByes = balls.filter { it.extraType == "LEG_BYE" }.sumOf { it.extraRuns }
-            val totalExtras = wides + noBalls + byes + legByes
+                val wides = balls.count { it.extraType == "WIDE" }
+                val noBalls = balls.count { it.extraType == "NO_BALL" }
+                val byes = balls.filter { it.extraType == "BYE" }.sumOf { it.extraRuns }
+                val legByes = balls.filter { it.extraType == "LEG_BYE" }.sumOf { it.extraRuns }
+                val totalExtras = wides + noBalls + byes + legByes
 
-            Text("Extras: $totalExtras (W: $wides, NB: $noBalls, B: $byes, LB: $legByes)", style = MaterialTheme.typography.bodySmall, color = TextSecondaryLight)
+                Text("Extras: $totalExtras (W: $wides, NB: $noBalls, B: $byes, LB: $legByes)", style = MaterialTheme.typography.bodySmall, color = TextSecondaryLight)
+            }
+        }
+    }
+}
+
+@Composable
+fun BowlingAnalysisCard(balls: List<BallEvent>) {
+    val bowlerGroups = balls.groupBy { it.bowlerName }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("⚡ Bowling Figures", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CricketGreenDark)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Bowler", fontWeight = FontWeight.Bold, modifier = Modifier.weight(2f))
+                Text("O", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
+                Text("M", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.5f))
+                Text("R", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
+                Text("W", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
+                Text("Econ", fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.8f))
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            if (bowlerGroups.isEmpty()) {
+                Text("No bowling data recorded yet", fontSize = 12.sp, color = TextSecondaryLight)
+            } else {
+                bowlerGroups.forEach { (bowlerName, bBalls) ->
+                    val legalBalls = bBalls.count { it.extraType != "WIDE" && it.extraType != "NO_BALL" }
+                    val oversFloat = (legalBalls / 6) + ((legalBalls % 6) / 10f)
+                    val runsConceded = bBalls.sumOf { it.runsScored + (if (it.extraType == "WIDE" || it.extraType == "NO_BALL") 1 + it.extraRuns else 0) }
+                    val wicketsTaken = bBalls.count { it.isWicket && it.dismissalType != "Run Out" }
+                    val oversDecimal = legalBalls / 6.0
+                    val econ = if (oversDecimal > 0) "%.2f".format(runsConceded / oversDecimal) else "0.0"
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(bowlerName, modifier = Modifier.weight(2f), maxLines = 1, fontWeight = FontWeight.Medium)
+                        Text(CricketOverUtils.formatOversFromFloat(oversFloat), modifier = Modifier.weight(0.6f))
+                        Text("0", modifier = Modifier.weight(0.5f))
+                        Text("$runsConceded", modifier = Modifier.weight(0.6f))
+                        Text("$wicketsTaken", modifier = Modifier.weight(0.6f), fontWeight = FontWeight.Bold, color = CricketGreenDark)
+                        Text(econ, modifier = Modifier.weight(0.8f), fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FallOfWicketsCard(balls: List<BallEvent>) {
+    val wicketBalls = balls.filter { it.isWicket }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("☝️ Fall of Wickets (FOW)", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CricketGreenDark)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (wicketBalls.isEmpty()) {
+                Text("No wickets fallen in this innings", fontSize = 12.sp, color = TextSecondaryLight)
+            } else {
+                var cumulativeScore = 0
+                var wIndex = 1
+                balls.forEach { b ->
+                    cumulativeScore += b.runsScored + (if (b.extraType == "WIDE" || b.extraType == "NO_BALL") 1 + b.extraRuns else 0)
+                    if (b.isWicket) {
+                        Text(
+                            text = "$wIndex-$cumulativeScore (${b.dismissedBatter.ifEmpty { b.batterName }}, ${b.overNumber}.${b.ballNumberInOver} ov)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                        wIndex++
+                    }
+                }
+            }
         }
     }
 }

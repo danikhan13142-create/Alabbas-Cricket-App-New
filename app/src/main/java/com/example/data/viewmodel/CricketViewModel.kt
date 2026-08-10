@@ -7,8 +7,12 @@ import com.example.data.ai.GeminiService
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
 import com.example.data.repository.CricketRepository
+import com.example.util.CricketOverUtils
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+
+import com.example.ui.theme.ScorecardCustomization
+import com.example.ui.theme.ThemeSettings
 
 data class ChatMessage(
     val sender: String, // "USER" or "AI"
@@ -20,6 +24,20 @@ class CricketViewModel(application: Application) : AndroidViewModel(application)
 
     private val repository = CricketRepository(AppDatabase.getDatabase(application))
     private val geminiService = GeminiService()
+
+    private val _themeSettings = MutableStateFlow(ThemeSettings())
+    val themeSettings = _themeSettings.asStateFlow()
+
+    fun updateThemeSettings(settings: ThemeSettings) {
+        _themeSettings.value = settings
+    }
+
+    private val _scorecardCustomization = MutableStateFlow(ScorecardCustomization())
+    val scorecardCustomization = _scorecardCustomization.asStateFlow()
+
+    fun updateScorecardCustomization(customization: ScorecardCustomization) {
+        _scorecardCustomization.value = customization
+    }
 
     init {
         viewModelScope.launch {
@@ -48,6 +66,16 @@ class CricketViewModel(application: Application) : AndroidViewModel(application)
 
     private val _currentBowler = MutableStateFlow("Hamza Ali")
     val currentBowler = _currentBowler.asStateFlow()
+
+    private val _previousBowler = MutableStateFlow<String?>(null)
+    val previousBowler = _previousBowler.asStateFlow()
+
+    private val _overCompletedEvent = MutableStateFlow<Long?>(null)
+    val overCompletedEvent = _overCompletedEvent.asStateFlow()
+
+    fun resetOverCompletedEvent() {
+        _overCompletedEvent.value = null
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
@@ -189,31 +217,31 @@ class CricketViewModel(application: Application) : AndroidViewModel(application)
         val isInnings1 = currentMatch.currentInnings == 1
         var currScore = if (isInnings1) currentMatch.team1Score else currentMatch.team2Score
         var currWickets = if (isInnings1) currentMatch.team1Wickets else currentMatch.team2Wickets
-        var currOversFloat = if (isInnings1) currentMatch.team1Overs else currentMatch.team2Overs
+        val currOversFloat = if (isInnings1) currentMatch.team1Overs else currentMatch.team2Overs
 
-        // Calculate current legal balls
-        val fullOvers = currOversFloat.toInt()
-        val ballsInCurrOver = ((currOversFloat - fullOvers) * 10).toInt()
-        var totalLegalBalls = (fullOvers * 6) + ballsInCurrOver
+        // Calculate current legal balls safely using CricketOverUtils
+        var totalLegalBalls = CricketOverUtils.oversToLegalBalls(currOversFloat)
 
         var extraRunsToAdd = 0
-        var isLegalDelivery = true
+        val isLegalDelivery = CricketOverUtils.isLegalDelivery(extraType)
 
         when (extraType) {
-            "WIDE", "NO_BALL" -> {
-                extraRunsToAdd = 1
-                isLegalDelivery = false
+            "WIDE" -> {
+                extraRunsToAdd = 1 + runs // 1 wide extra + any physical runs completed by batters
+            }
+            "NO_BALL" -> {
+                extraRunsToAdd = 1 // 1 no-ball extra
             }
             "BYE", "LEG_BYE" -> {
                 extraRunsToAdd = runs
-                isLegalDelivery = true
             }
             else -> {
-                isLegalDelivery = true
+                extraRunsToAdd = 0
             }
         }
 
-        val totalRunsThisBall = if (extraType == "BYE" || extraType == "LEG_BYE") extraRunsToAdd else (runs + extraRunsToAdd)
+        val batRuns = if (extraType == "BYE" || extraType == "LEG_BYE" || extraType == "WIDE") 0 else runs
+        val totalRunsThisBall = batRuns + extraRunsToAdd
         currScore += totalRunsThisBall
 
         if (isWicket) {
@@ -226,17 +254,17 @@ class CricketViewModel(application: Application) : AndroidViewModel(application)
 
         val newFullOvers = totalLegalBalls / 6
         val newBallsInOver = totalLegalBalls % 6
-        val newOversFloat = newFullOvers + (newBallsInOver / 10.0f)
+        val newOversFloat = CricketOverUtils.legalBallsToOversFloat(totalLegalBalls)
 
         // Record Ball Event
         val ballEvent = BallEvent(
             matchId = mId,
             inningsIndex = currentMatch.currentInnings,
-            overNumber = newFullOvers,
-            ballNumberInOver = newBallsInOver,
+            overNumber = if (newBallsInOver == 0 && newFullOvers > 0) newFullOvers - 1 else newFullOvers,
+            ballNumberInOver = if (newBallsInOver == 0 && newFullOvers > 0) 6 else newBallsInOver,
             batterName = _currentStriker.value,
             bowlerName = _currentBowler.value,
-            runsScored = if (extraType == "BYE" || extraType == "LEG_BYE") 0 else runs,
+            runsScored = batRuns,
             extraType = extraType,
             extraRuns = extraRunsToAdd,
             isWicket = isWicket,
@@ -246,17 +274,19 @@ class CricketViewModel(application: Application) : AndroidViewModel(application)
         )
         repository.insertBallEvent(ballEvent)
 
-        // Rotate Strike
-        val runsForStrikeSwap = if (extraType == "BYE" || extraType == "LEG_BYE") extraRunsToAdd else runs
-        var shouldSwapStrike = (runsForStrikeSwap % 2 != 0)
+        // Strike Swap Logic
+        val physicalRuns = if (extraType == "BYE" || extraType == "LEG_BYE") extraRunsToAdd else runs
+        var shouldSwapStrike = (physicalRuns % 2 != 0)
 
         if (isWicket && newBatterName.isNotEmpty()) {
             _currentStriker.value = newBatterName
         }
 
-        // End of over strike rotation
-        if (isLegalDelivery && newBallsInOver == 0) {
+        val isOverEnded = isLegalDelivery && newBallsInOver == 0 && totalLegalBalls > 0
+        if (isOverEnded) {
             shouldSwapStrike = !shouldSwapStrike
+            _previousBowler.value = _currentBowler.value
+            _overCompletedEvent.value = System.currentTimeMillis()
         }
 
         if (shouldSwapStrike) {
@@ -265,23 +295,50 @@ class CricketViewModel(application: Application) : AndroidViewModel(application)
             _currentNonStriker.value = temp
         }
 
-        // Update Match in DB directly
-        val updatedMatch = if (isInnings1) {
-            currentMatch.copy(
+        val maxBalls = currentMatch.totalOvers * 6
+        val maxWickets = 10
+        var status = currentMatch.status
+        var winner = currentMatch.winner
+        var resultSummary = currentMatch.resultSummary
+
+        if (isInnings1) {
+            val target = currScore + 1
+            val updatedMatch = currentMatch.copy(
                 team1Score = currScore,
                 team1Wickets = currWickets,
-                team1Overs = newOversFloat
+                team1Overs = newOversFloat,
+                targetScore = target
             )
+            repository.updateMatch(updatedMatch)
         } else {
-            val target = currentMatch.team1Score + 1
-            currentMatch.copy(
+            val target = currentMatch.targetScore
+            if (currScore >= target) {
+                status = "COMPLETED"
+                winner = currentMatch.team2Name
+                val wksLeft = maxWickets - currWickets
+                val ballsLeft = maxBalls - totalLegalBalls
+                resultSummary = "$winner won by $wksLeft wickets ($ballsLeft balls left)"
+            } else if (currWickets >= maxWickets || totalLegalBalls >= maxBalls) {
+                status = "COMPLETED"
+                val diff = (target - 1) - currScore
+                if (diff > 0) {
+                    winner = currentMatch.team1Name
+                    resultSummary = "$winner won by $diff runs"
+                } else {
+                    winner = "Tie"
+                    resultSummary = "Match Tied!"
+                }
+            }
+            val updatedMatch = currentMatch.copy(
                 team2Score = currScore,
                 team2Wickets = currWickets,
                 team2Overs = newOversFloat,
-                targetScore = target
+                status = status,
+                winner = winner,
+                resultSummary = resultSummary
             )
+            repository.updateMatch(updatedMatch)
         }
-        repository.updateMatch(updatedMatch)
     }
 
     // MULTI-LEVEL UNDO (WITH SCORE SYNCHRONIZATION)

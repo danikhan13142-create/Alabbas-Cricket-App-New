@@ -21,6 +21,8 @@ import com.example.ui.navigation.Screen
 import com.example.ui.screens.*
 import com.example.ui.theme.*
 
+import androidx.compose.runtime.collectAsState
+
 class MainActivity : ComponentActivity() {
 
     private val viewModel: CricketViewModel by viewModels()
@@ -29,7 +31,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            CricketAppTheme {
+            val themeSettings by viewModel.themeSettings.collectAsState()
+            CricketAppTheme(settings = themeSettings) {
                 MainAppStructure(viewModel)
             }
         }

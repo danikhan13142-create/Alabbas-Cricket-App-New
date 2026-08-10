@@ -18,6 +18,12 @@ import com.example.data.viewmodel.CricketViewModel
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
+
 @Composable
 fun SettingsScreen(
     viewModel: CricketViewModel
@@ -25,9 +31,15 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    val themeSettings by viewModel.themeSettings.collectAsState()
+    val scorecardCustomization by viewModel.scorecardCustomization.collectAsState()
+
     var showBackupDialog by remember { mutableStateOf<String?>(null) }
     var importJsonText by remember { mutableStateOf("") }
     var showImportModal by remember { mutableStateOf(false) }
+
+    var primaryHexInput by remember(themeSettings) { mutableStateOf(themeSettings.customPrimaryColorHex ?: "#1B3D2B") }
+    var accentHexInput by remember(themeSettings) { mutableStateOf(themeSettings.customAccentColorHex ?: "#D4AF37") }
 
     LazyColumn(
         modifier = Modifier
@@ -38,7 +50,7 @@ fun SettingsScreen(
     ) {
         item {
             Text(
-                text = "Settings & Backup",
+                text = "Settings & Personalization",
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -51,12 +63,194 @@ fun SettingsScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = CricketGreenDark)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text("Team Profile", color = CricketGoldLight, style = MaterialTheme.typography.bodySmall)
                     Text("Alabbas Cricket Mithial", color = CricketGold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("District League • Mithial Sports Stadium", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text("District League • Mithial Sports Stadium", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+
+        // 1. App Theme Selection Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("App Theme Preset", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Dark Mode", style = MaterialTheme.typography.bodySmall)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Switch(
+                                checked = themeSettings.isDarkMode,
+                                onCheckedChange = { isDark ->
+                                    viewModel.updateThemeSettings(themeSettings.copy(isDarkMode = isDark))
+                                }
+                            )
+                        }
+                    }
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(AppThemeStyle.values()) { style ->
+                            val isSelected = themeSettings.themeStyle == style
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    viewModel.updateThemeSettings(themeSettings.copy(themeStyle = style))
+                                },
+                                label = { Text(style.displayName) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Custom Color Customization
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Custom Theme Colors", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = primaryHexInput,
+                            onValueChange = { 
+                                primaryHexInput = it
+                                viewModel.updateThemeSettings(themeSettings.copy(customPrimaryColorHex = it))
+                            },
+                            label = { Text("Primary Color (Hex)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = accentHexInput,
+                            onValueChange = { 
+                                accentHexInput = it
+                                viewModel.updateThemeSettings(themeSettings.copy(customAccentColorHex = it))
+                            },
+                            label = { Text("Accent Color (Hex)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    TextButton(
+                        onClick = {
+                            primaryHexInput = "#1B3D2B"
+                            accentHexInput = "#D4AF37"
+                            viewModel.updateThemeSettings(
+                                themeSettings.copy(
+                                    customPrimaryColorHex = null,
+                                    customAccentColorHex = null
+                                )
+                            )
+                        }
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reset Colors to Default")
+                    }
+                }
+            }
+        }
+
+        // 3. Font Customization Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Font & Typography", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+
+                    Text("Font Style", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(AppFontFamily.values()) { font ->
+                            val isSelected = themeSettings.fontFamily == font
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.updateThemeSettings(themeSettings.copy(fontFamily = font)) },
+                                label = { Text(font.displayName) }
+                            )
+                        }
+                    }
+
+                    Text("Font Size Density", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(AppFontScale.values()) { scale ->
+                            val isSelected = themeSettings.fontScale == scale
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.updateThemeSettings(themeSettings.copy(fontScale = scale)) },
+                                label = { Text(scale.displayName) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Scorecard Customization Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Scorecard Display Preferences", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("Customize what details are shown on live & match scorecards.", style = MaterialTheme.typography.bodySmall)
+
+                    ScorecardToggleItem("Team Crest / Logos", scorecardCustomization.showTeamLogo) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showTeamLogo = it))
+                    }
+                    ScorecardToggleItem("Strike / Non-Striker Indicators", scorecardCustomization.showStrikeIndicator) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showStrikeIndicator = it))
+                    }
+                    ScorecardToggleItem("Partnerships Breakdown", scorecardCustomization.showPartnerships) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showPartnerships = it))
+                    }
+                    ScorecardToggleItem("Fall of Wickets (FOW)", scorecardCustomization.showFallOfWickets) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showFallOfWickets = it))
+                    }
+                    ScorecardToggleItem("Extras Breakdown", scorecardCustomization.showExtrasBreakdown) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showExtrasBreakdown = it))
+                    }
+                    ScorecardToggleItem("Current & Required Run Rates", scorecardCustomization.showRunRates) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showRunRates = it))
+                    }
+                    ScorecardToggleItem("Visual Wagon Wheel Graph", scorecardCustomization.showWagonWheel) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showWagonWheel = it))
+                    }
+                    ScorecardToggleItem("Ball-by-Ball Commentary Stream", scorecardCustomization.showCommentary) {
+                        viewModel.updateScorecardCustomization(scorecardCustomization.copy(showCommentary = it))
+                    }
                 }
             }
         }
@@ -110,7 +304,7 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("About Application", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Text("Alabbas Cricket Mithial v1.0.0", fontWeight = FontWeight.Bold, color = CricketGreenPrimary)
+                    Text("Alabbas Cricket Mithial v2.5 Pro", fontWeight = FontWeight.Bold, color = CricketGreenPrimary)
                     Text("Complete offline Android Cricket Team Management & Live Ball-by-Ball Scoring system.")
                     Text("Currencies used: Pakistani Rupees (Rs)")
                 }
@@ -186,6 +380,28 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showImportModal = false }) { Text("Cancel") }
             }
+        )
+    }
+}
+
+@Composable
+private fun ScorecardToggleItem(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, style = MaterialTheme.typography.bodyMedium)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
         )
     }
 }

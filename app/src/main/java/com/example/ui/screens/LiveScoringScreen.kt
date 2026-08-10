@@ -22,6 +22,7 @@ import com.example.data.model.BallEvent
 import com.example.data.viewmodel.CricketViewModel
 import com.example.ui.components.BallBadge
 import com.example.ui.theme.*
+import com.example.util.CricketOverUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +38,8 @@ fun LiveScoringScreen(
     val striker by viewModel.currentStriker.collectAsState()
     val nonStriker by viewModel.currentNonStriker.collectAsState()
     val bowler by viewModel.currentBowler.collectAsState()
+    val previousBowler by viewModel.previousBowler.collectAsState()
+    val overCompletedEvent by viewModel.overCompletedEvent.collectAsState()
     val activePlayers by viewModel.activePlayers.collectAsState()
     val undoneBalls by viewModel.undoneBallEvents.collectAsState()
 
@@ -47,6 +50,13 @@ fun LiveScoringScreen(
     var showSelectBatsmanDialog by remember { mutableStateOf<String?>(null) } // "STRIKER", "NON_STRIKER"
     var editingBallEvent by remember { mutableStateOf<BallEvent?>(null) }
     var selectedShotDirection by remember { mutableStateOf("") }
+
+    LaunchedEffect(overCompletedEvent) {
+        if (overCompletedEvent != null) {
+            showSelectBowlerDialog = true
+            viewModel.resetOverCompletedEvent()
+        }
+    }
 
     if (match == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -63,8 +73,8 @@ fun LiveScoringScreen(
 
     val ballEvents by viewModel.getBallEventsForInnings(matchId, match.currentInnings).collectAsState(initial = emptyList())
 
-    val totalBallsLegal = (currentOvers.toInt() * 6) + ((currentOvers - currentOvers.toInt()) * 10).toInt()
-    val currentRunRate = if (totalBallsLegal > 0) (currentScore.toDouble() / totalBallsLegal) * 6 else 0.0
+    val totalBallsLegal = CricketOverUtils.oversToLegalBalls(currentOvers)
+    val currentRunRate = CricketOverUtils.calculateRunRate(currentScore, totalBallsLegal)
 
     Scaffold(
         topBar = {
@@ -135,7 +145,7 @@ fun LiveScoringScreen(
                         )
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = "Overs: ${"%.1f".format(currentOvers)} / ${match.totalOvers}",
+                                text = "Overs: ${CricketOverUtils.formatOversFromFloat(currentOvers)} / ${match.totalOvers}",
                                 style = MaterialTheme.typography.titleMedium.copy(color = Color.White)
                             )
                             Text(

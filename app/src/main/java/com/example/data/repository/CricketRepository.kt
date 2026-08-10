@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
+import com.example.util.CricketOverUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -169,17 +170,44 @@ class CricketRepository(private val db: AppDatabase) {
         val balls1 = allBalls.filter { it.inningsIndex == 1 }
         val score1 = balls1.sumOf { it.runsScored + it.extraRuns }
         val wickets1 = balls1.count { it.isWicket }
-        val legalBalls1 = balls1.count { it.extraType != "WIDE" && it.extraType != "NO_BALL" }
-        val overs1Float = (legalBalls1 / 6) + ((legalBalls1 % 6) / 10.0f)
+        val legalBalls1 = balls1.count { CricketOverUtils.isLegalDelivery(it.extraType) }
+        val overs1Float = CricketOverUtils.legalBallsToOversFloat(legalBalls1)
 
         // Innings 2 calculation
         val balls2 = allBalls.filter { it.inningsIndex == 2 }
         val score2 = balls2.sumOf { it.runsScored + it.extraRuns }
         val wickets2 = balls2.count { it.isWicket }
-        val legalBalls2 = balls2.count { it.extraType != "WIDE" && it.extraType != "NO_BALL" }
-        val overs2Float = (legalBalls2 / 6) + ((legalBalls2 % 6) / 10.0f)
+        val legalBalls2 = balls2.count { CricketOverUtils.isLegalDelivery(it.extraType) }
+        val overs2Float = CricketOverUtils.legalBallsToOversFloat(legalBalls2)
 
         val target = if (score1 > 0 || balls1.isNotEmpty()) score1 + 1 else currentMatch.targetScore
+
+        var status = currentMatch.status
+        var winner = currentMatch.winner
+        var resultSummary = currentMatch.resultSummary
+
+        val maxBalls = currentMatch.totalOvers * 6
+        val maxWickets = 10
+
+        if (currentMatch.currentInnings == 2 || score2 > 0 || balls2.isNotEmpty()) {
+            if (score2 >= target) {
+                status = "COMPLETED"
+                winner = currentMatch.team2Name
+                val wksLeft = maxWickets - wickets2
+                val ballsLeft = maxBalls - legalBalls2
+                resultSummary = "$winner won by $wksLeft wickets ($ballsLeft balls left)"
+            } else if (wickets2 >= maxWickets || legalBalls2 >= maxBalls) {
+                status = "COMPLETED"
+                val diff = (target - 1) - score2
+                if (diff > 0) {
+                    winner = currentMatch.team1Name
+                    resultSummary = "$winner won by $diff runs"
+                } else if (diff == 0) {
+                    winner = "Tie"
+                    resultSummary = "Match Tied!"
+                }
+            }
+        }
 
         val updatedMatch = currentMatch.copy(
             team1Score = score1,
@@ -188,7 +216,10 @@ class CricketRepository(private val db: AppDatabase) {
             team2Score = score2,
             team2Wickets = wickets2,
             team2Overs = overs2Float,
-            targetScore = target
+            targetScore = target,
+            status = status,
+            winner = winner,
+            resultSummary = resultSummary
         )
         db.matchDao().updateMatch(updatedMatch)
     }
