@@ -245,19 +245,25 @@ class CricketRepository(private val db: AppDatabase) {
     suspend fun updateExpense(expenseItem: ExpenseItem) = db.expenseDao().updateExpense(expenseItem)
     suspend fun deleteExpense(expenseItem: ExpenseItem) = db.expenseDao().deleteExpense(expenseItem)
 
-    // Calculate Comprehensive Player Stats
+    // Calculate Comprehensive Player Stats strictly from database match records and ball events
     fun getPlayerStats(playerId: Long): Flow<ComprehensivePlayerStats?> {
         return players.map { playerList ->
             val player = playerList.find { it.id == playerId } ?: return@map null
             val allBalls = db.ballEventDao().getAllBallEvents()
-            val allMatchesList = db.matchDao().getAllMatches().first()
+            val completedMatchesList = db.matchDao().getAllMatches().first().filter { it.status == "COMPLETED" }
 
-            // Batting stats from ball events & completed matches
+            // Filter ball events for this player
             val batterBalls = allBalls.filter { it.batterName.equals(player.name, ignoreCase = true) }
-            var runs = batterBalls.sumOf { it.runsScored }
-            var balls = batterBalls.count { it.extraType != "WIDE" }
-            var fours = batterBalls.count { it.runsScored == 4 }
-            var sixes = batterBalls.count { it.runsScored == 6 }
+            val runs = batterBalls.sumOf { it.runsScored }
+            val balls = batterBalls.count { it.extraType != "WIDE" }
+            val fours = batterBalls.count { it.runsScored == 4 }
+            val sixes = batterBalls.count { it.runsScored == 6 }
+
+            // Calculate highest score from ball events grouped by match
+            val matchScores = batterBalls.groupBy { it.matchId }.map { (_, events) -> events.sumOf { it.runsScored } }
+            val highestScore = matchScores.maxOrNull() ?: 0
+            val fifties = matchScores.count { it in 50..99 }
+            val hundreds = matchScores.count { it >= 100 }
 
             // Bowling stats
             val bowlerBalls = allBalls.filter { it.bowlerName.equals(player.name, ignoreCase = true) }
@@ -266,53 +272,58 @@ class CricketRepository(private val db: AppDatabase) {
             val legalBallsBowled = bowlerBalls.count { it.extraType != "WIDE" && it.extraType != "NO_BALL" }
             val oversBowled = (legalBallsBowled / 6) + ((legalBallsBowled % 6) / 10.0)
 
+            // Best bowling calculation per match
+            val bowlingByMatch = bowlerBalls.groupBy { it.matchId }.map { (_, events) ->
+                val w = events.count { it.isWicket && it.dismissalType != "Run Out" && it.dismissalType != "Retired" }
+                val r = events.sumOf { it.runsScored + it.extraRuns }
+                Pair(w, r)
+            }
+            val bestBowlingPair = bowlingByMatch.maxByOrNull { it.first * 1000 - it.second }
+            val bestBowlingStr = if (bestBowlingPair != null && bestBowlingPair.first > 0) "${bestBowlingPair.first}/${bestBowlingPair.second}" else if (wickets > 0) "$wickets/$runsConceded" else "0/0"
+            val threeWickets = bowlingByMatch.count { it.first in 3..4 }
+            val fiveWickets = bowlingByMatch.count { it.first >= 5 }
+
             // Fielding stats
             val catches = allBalls.count { it.isWicket && it.dismissalType == "Caught" && it.fielderName.equals(player.name, ignoreCase = true) }
             val runOuts = allBalls.count { it.isWicket && it.dismissalType == "Run Out" && it.fielderName.equals(player.name, ignoreCase = true) }
             val stumpings = allBalls.count { it.isWicket && it.dismissalType == "Stumped" && it.fielderName.equals(player.name, ignoreCase = true) }
 
-            // If initial match data exists for Alabbas player, enhance stats
-            var mCount = allMatchesList.size
-            if (player.name.contains("Abbas", ignoreCase = true)) {
-                runs = maxOf(runs, 248)
-                balls = maxOf(balls, 142)
-                fours = maxOf(fours, 22)
-                sixes = maxOf(sixes, 14)
-            } else if (player.name.contains("Zubair", ignoreCase = true)) {
-                runs = maxOf(runs, 215)
-                balls = maxOf(balls, 130)
-                fours = maxOf(fours, 28)
-                sixes = maxOf(sixes, 9)
-            }
+            // Player match participation count from ball events or completed matches
+            val matchesParticipated = batterBalls.map { it.matchId }.union(bowlerBalls.map { it.matchId }).size
+            val inningsCount = batterBalls.map { it.matchId to it.inningsIndex }.distinct().size
 
             val strikeRate = if (balls > 0) (runs.toDouble() / balls) * 100 else 0.0
             val economy = if (legalBallsBowled > 0) (runsConceded.toDouble() / legalBallsBowled) * 6 else 0.0
+            val battingAvg = if (inningsCount > 0) runs.toDouble() / inningsCount else 0.0
+            val bowlingAvg = if (wickets > 0) runsConceded.toDouble() / wickets else 0.0
 
             ComprehensivePlayerStats(
                 player = player,
                 batting = PlayerBattingStats(
-                    matches = mCount,
-                    innings = maxOf(1, mCount),
+                    matches = matchesParticipated,
+                    innings = inningsCount,
                     runs = runs,
                     balls = balls,
-                    highestScore = maxOf(runs, 74),
+                    highestScore = highestScore,
                     fours = fours,
                     sixes = sixes,
-                    fifties = if (runs >= 50) 2 else 0,
-                    hundreds = if (runs >= 100) 1 else 0,
-                    notOuts = 2,
-                    average = if (mCount > 0) runs.toDouble() / mCount else 0.0,
+                    fifties = fifties,
+                    hundreds = hundreds,
+                    notOuts = maxOf(0, matchesParticipated - inningsCount),
+                    average = battingAvg,
                     strikeRate = strikeRate
                 ),
                 bowling = PlayerBowlingStats(
-                    matches = mCount,
+                    matches = matchesParticipated,
                     overs = oversBowled,
                     balls = legalBallsBowled,
                     runsConceded = runsConceded,
-                    wickets = maxOf(wickets, if (player.role == "Bowler" || player.role == "All-rounder") 7 else 0),
-                    bestBowling = if (wickets > 0) "$wickets/$runsConceded" else "3/19",
+                    wickets = wickets,
+                    bestBowling = bestBowlingStr,
                     economy = economy,
-                    average = if (wickets > 0) runsConceded.toDouble() / wickets else 0.0
+                    average = bowlingAvg,
+                    threeWickets = threeWickets,
+                    fiveWickets = fiveWickets
                 ),
                 fielding = PlayerFieldingStats(
                     catches = catches,
@@ -323,29 +334,58 @@ class CricketRepository(private val db: AppDatabase) {
         }.flowOn(Dispatchers.IO)
     }
 
-    // Team Overall Stats
+    // Team Overall Stats strictly derived from valid completed database matches
     fun getTeamStats(): Flow<TeamOverviewStats> {
         return matches.map { matchDetails ->
             val completed = matchDetails.filter { it.status == "COMPLETED" }
-            val won = completed.count { it.winner.contains("Alabbas", ignoreCase = true) }
-            val lost = completed.count { !it.winner.contains("Alabbas", ignoreCase = true) && it.winner.isNotEmpty() }
-            val totalRuns = completed.sumOf { if (it.team1Name.contains("Alabbas", ignoreCase = true)) it.team1Score else it.team2Score }
-            val totalWickets = completed.sumOf { if (it.team1Name.contains("Alabbas", ignoreCase = true)) it.team1Wickets else it.team2Wickets }
-            val highest = completed.map { if (it.team1Name.contains("Alabbas", ignoreCase = true)) it.team1Score else it.team2Score }.maxOrNull() ?: 186
+            if (completed.isEmpty()) {
+                TeamOverviewStats(
+                    matchesPlayed = 0,
+                    matchesWon = 0,
+                    matchesLost = 0,
+                    ties = 0,
+                    winPercentage = 0.0,
+                    totalRuns = 0,
+                    totalWickets = 0,
+                    highestTeamScore = 0,
+                    lowestTeamScore = 0,
+                    bestRunChase = 0,
+                    biggestWin = "—"
+                )
+            } else {
+                val won = completed.count { it.winner.contains("Alabbas", ignoreCase = true) }
+                val lost = completed.count { !it.winner.contains("Alabbas", ignoreCase = true) && !it.winner.contains("Tie", ignoreCase = true) && it.winner.isNotEmpty() }
+                val ties = completed.count { it.winner.contains("Tie", ignoreCase = true) }
+                val teamScores = completed.map { if (it.team1Name.contains("Alabbas", ignoreCase = true)) it.team1Score else it.team2Score }
+                val teamWickets = completed.map { if (it.team1Name.contains("Alabbas", ignoreCase = true)) it.team1Wickets else it.team2Wickets }
+                
+                val totalRuns = teamScores.sum()
+                val totalWickets = teamWickets.sum()
+                val highest = teamScores.maxOrNull() ?: 0
+                val lowest = teamScores.minOrNull() ?: 0
 
-            TeamOverviewStats(
-                matchesPlayed = completed.size,
-                matchesWon = won,
-                matchesLost = lost,
-                ties = 0,
-                winPercentage = if (completed.isNotEmpty()) (won.toDouble() / completed.size) * 100 else 100.0,
-                totalRuns = maxOf(totalRuns, 334),
-                totalWickets = maxOf(totalWickets, 19),
-                highestTeamScore = highest,
-                lowestTeamScore = 148,
-                bestRunChase = 148,
-                biggestWin = "24 runs vs Shaheen CC"
-            )
+                val chasedMatches = completed.filter { it.winner.contains("Alabbas", ignoreCase = true) && it.team2Name.contains("Alabbas", ignoreCase = true) }
+                val bestChase = chasedMatches.maxOfOrNull { it.team2Score } ?: 0
+
+                val winningMatch = completed.find { it.winner.contains("Alabbas", ignoreCase = true) }
+                val biggestWinStr = winningMatch?.resultSummary ?: "—"
+
+                val winPct = (won.toDouble() / completed.size) * 100.0
+
+                TeamOverviewStats(
+                    matchesPlayed = completed.size,
+                    matchesWon = won,
+                    matchesLost = lost,
+                    ties = ties,
+                    winPercentage = winPct,
+                    totalRuns = totalRuns,
+                    totalWickets = totalWickets,
+                    highestTeamScore = highest,
+                    lowestTeamScore = lowest,
+                    bestRunChase = bestChase,
+                    biggestWin = biggestWinStr
+                )
+            }
         }
     }
 
