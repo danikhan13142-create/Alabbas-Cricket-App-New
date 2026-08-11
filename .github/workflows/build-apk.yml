@@ -2,9 +2,9 @@ name: Build Android APK
 
 on:
   push:
-    branches: ["main", "master"]
-  pull_request:
-    branches: ["main", "master"]
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -27,20 +27,24 @@ jobs:
         with:
           gradle-version: "9.3.1"
 
+      - name: Create Debug Keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -keypass android \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Build Debug APK
         run: gradle assembleDebug
-
-      - name: Build Release APK
-        run: gradle assembleRelease
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Upload Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: app/build/outputs/apk/release/app-release.apk
