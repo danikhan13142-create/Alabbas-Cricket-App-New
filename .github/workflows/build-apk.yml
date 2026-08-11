@@ -38,6 +38,33 @@ jobs:
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
 
+      - name: Create Google Services Configuration
+        run: |
+          cat > app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "alabbas-cricket-build",
+              "storage_bucket": "alabbas-cricket-build.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.cricket.mithial"
+                  }
+                },
+                "api_key": [
+                  {
+                    "current_key": "000000000000000000000000000000000000000"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+
       - name: Build Debug APK
         run: gradle clean assembleDebug --stacktrace
 
