@@ -9,6 +9,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -363,7 +365,7 @@ fun LiveScoringScreen(
                         onClick = { viewModel.undoLastBall() },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Undo", fontSize = 12.sp)
                     }
@@ -373,7 +375,7 @@ fun LiveScoringScreen(
                         enabled = undoneBalls.isNotEmpty(),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Redo, contentDescription = "Redo", modifier = Modifier.size(16.dp))
+                        Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Redo", fontSize = 12.sp)
                     }

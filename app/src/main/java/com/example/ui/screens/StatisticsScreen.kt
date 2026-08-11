@@ -217,7 +217,7 @@ fun TeamStatsOverview(viewModel: CricketViewModel) {
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Alabbas Cricket Mithial Record", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Divider()
+                    HorizontalDivider()
                     Text("Matches Played: ${teamStats.matchesPlayed}")
                     Text("Matches Won: ${teamStats.matchesWon}")
                     Text("Matches Lost: ${teamStats.matchesLost}")

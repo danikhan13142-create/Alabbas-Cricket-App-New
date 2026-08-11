@@ -405,13 +405,13 @@ fun PlayerDetailProfileModal(
                         Text("Matches: ${stats.batting.matches} | Runs: ${stats.batting.runs} | Highest: ${stats.batting.highestScore}")
                         Text("Avg: ${"%.2f".format(stats.batting.average)} | SR: ${"%.2f".format(stats.batting.strikeRate)}")
                         Text("4s: ${stats.batting.fours} | 6s: ${stats.batting.sixes} | 50s: ${stats.batting.fifties} | 100s: ${stats.batting.hundreds}")
-                        Divider(modifier = Modifier.padding(vertical = 6.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                     }
                     item {
                         Text("Bowling Statistics", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CricketGreenPrimary)
                         Text("Overs: ${"%.1f".format(stats.bowling.overs)} | Wickets: ${stats.bowling.wickets}")
                         Text("Economy: ${"%.2f".format(stats.bowling.economy)} | Best: ${stats.bowling.bestBowling}")
-                        Divider(modifier = Modifier.padding(vertical = 6.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                     }
                     item {
                         Text("Fielding Statistics", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CricketGreenPrimary)
